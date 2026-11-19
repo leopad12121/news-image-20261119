@@ -1,34 +1,23 @@
 #!/usr/bin/env python3
-"""Entrypoint for news-image-20261119 (make.fun).
+"""Entry point: copy the generated front page to the output directory.
 
-Copies the finished front-page image, entry.png, which this repository
-holds, into the output directory as entry.png. Standard library only,
-no network, fully deterministic: both runs write the same bytes.
+Reads the MAKEFUN_OUTPUT_DIR environment variable; when it is unset,
+the image stays in the current directory. The copy is byte-for-byte,
+so the delivered image is exactly the one draw_news.py produced.
 """
 
-import hashlib
 import os
 import shutil
-import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        h.update(f.read())
-    return h.hexdigest()
+SOURCE = "entry.png"
 
 
 def main():
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "."
     os.makedirs(out_dir, exist_ok=True)
-    src = os.path.join(HERE, "entry.png")
-    dst = os.path.join(out_dir, "entry.png")
-    shutil.copyfile(src, dst)
-    assert sha256(src) == sha256(dst), "copy mismatch"
-    print("wrote", dst, sha256(dst)[:16])
+    target = os.path.join(out_dir, SOURCE)
+    shutil.copyfile(SOURCE, target)
+    print(f"Copied {SOURCE} -> {target}")
 
 
 if __name__ == "__main__":
