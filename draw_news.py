@@ -1,198 +1,262 @@
 #!/usr/bin/env python3
-"""Draw entry.png: a one-page newspaper front page summing up the world news
-of Thursday 19 November 2026. Run: python3 draw_news.py  ->  entry.png
-Only Pillow is needed at draw time; the submitted entrypoint (main.py) is
-stdlib-only and just copies the finished image into the output directory."""
+"""Draw a 1024x1024 newspaper front page summing up 19 November 2026.
+
+PIL only, no network, no timestamps, no randomness: running this script
+twice produces a byte-identical entry.png.
+"""
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-PAPER = (247, 243, 234)
-INK = (20, 24, 34)
-NAVY = (20, 33, 61)
-RED = (178, 34, 34)
-GREY = (90, 92, 98)
-RULE = (180, 175, 160)
+WIDTH = 1024
+HEIGHT = 1024
+OUT_PATH = "entry.png"
+
+PAPER = (247, 243, 234)      # warm newsprint
+INK = (26, 28, 34)           # near-black text
+NAVY = (27, 35, 64)          # masthead / panels
+GOLD = (233, 196, 90)        # masthead accent
+RED = (178, 34, 34)          # kickers and red icons
+RULE = (180, 172, 155)       # thin divider lines
 
 SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-SERIF_R = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
 SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+SANS_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
 def font(path, size):
     return ImageFont.truetype(path, size)
 
 
-def wrap(draw, text, fnt, max_w):
-    """Greedy word wrap; returns list of lines that fit max_w."""
-    lines, cur = [], ""
-    for word in text.split():
-        trial = (cur + " " + word).strip()
-        if draw.textlength(trial, font=fnt) <= max_w:
-            cur = trial
-        else:
-            if cur:
-                lines.append(cur)
-            cur = word
-    if cur:
-        lines.append(cur)
+def wrap(draw, text, font_obj, max_width):
+    """Split text into lines that fit max_width, word by word."""
+    lines = []
+    for paragraph in text.split("\n"):
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+        current = words[0]
+        for word in words[1:]:
+            trial = current + " " + word
+            if draw.textlength(trial, font=font_obj) <= max_width:
+                current = trial
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
     return lines
 
 
-def para(draw, x, y, text, fnt, max_w, leading, fill=INK, max_lines=None):
-    lines = wrap(draw, text, fnt, max_w)
-    if max_lines:
-        lines = lines[:max_lines]
-    for line in lines:
-        draw.text((x, y), line, font=fnt, fill=fill)
-        y += leading
+def draw_text_block(draw, x, y, text, font_obj, fill, max_width, line_spacing=6):
+    """Draw wrapped text starting at (x, y); return y just below the block."""
+    for line in wrap(draw, text, font_obj, max_width):
+        draw.text((x, y), line, font=font_obj, fill=fill)
+        y += font_obj.size + line_spacing
     return y
 
 
-def icon_radar(d, box, c):
-    x0, y0, x1, y1 = box
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    r = (x1 - x0) // 2 - 4
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=c, width=5)
-    d.ellipse([cx - r // 2, cy - r // 2, cx + r // 2, cy + r // 2],
-              outline=c, width=3)
-    d.line([(cx, cy), (cx + r - 6, cy - r + 10)], fill=c, width=5)
-    d.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=c)
-    d.ellipse([cx + r - 14, cy + 4, cx + r - 4, cy + 14], fill=c)
+def draw_person(draw, cx, top, scale, head_fill, body_fill):
+    """A minimal person glyph: circle head above a half-disc torso."""
+    head_r = int(13 * scale)
+    head_cy = top + head_r
+    draw.ellipse(
+        [cx - head_r, head_cy - head_r, cx + head_r, head_cy + head_r],
+        fill=head_fill,
+    )
+    torso_top = head_cy + head_r + int(4 * scale)
+    torso_bottom = torso_top + int(16 * scale)
+    torso_w = int(26 * scale)
+    draw.pieslice(
+        [cx - torso_w, torso_top, cx + torso_w, torso_bottom + int(16 * scale)],
+        start=180,
+        end=360,
+        fill=body_fill,
+    )
 
 
-def icon_summit(d, box, c):
-    x0, y0, x1, y1 = box
-    for cx in (x0 + 22, (x0 + x1) // 2, x1 - 22):
-        d.ellipse([cx - 13, y0 + 14, cx + 13, y0 + 40], fill=c)
-        d.pieslice([cx - 18, y0 + 44, cx + 18, y0 + 78], 180, 360, fill=c)
-    d.line([(x0 + 4, y1 - 8), (x1 - 4, y1 - 8)], fill=c, width=5)
+def draw_scales(draw, x, y, size, color):
+    """Simple justice scales inside a square starting at (x, y)."""
+    cx = x + size // 2
+    top = y + int(size * 0.16)
+    bottom = y + int(size * 0.84)
+    draw.line([cx, top, cx, bottom], fill=color, width=4)
+    draw.line([x + int(size * 0.16), top + 8, x + int(size * 0.84), top + 8],
+              fill=color, width=4)
+    draw.line([x + int(size * 0.16), top + 8, x + int(size * 0.16), top + 34],
+              fill=color, width=3)
+    draw.line([x + int(size * 0.84), top + 8, x + int(size * 0.84), top + 34],
+              fill=color, width=3)
+    for pan_x in (x + int(size * 0.16), x + int(size * 0.84)):
+        draw.pieslice([pan_x - 16, top + 30, pan_x + 16, top + 52],
+                      start=0, end=180, fill=color)
+    draw.rectangle([cx - 22, bottom - 4, cx + 22, bottom + 4], fill=color)
 
 
-def icon_alert(d, box, c):
-    x0, y0, x1, y1 = box
-    cx = (x0 + x1) // 2
-    d.polygon([(cx, y0 + 8), (x1 - 8, y1 - 12), (x0 + 8, y1 - 12)], fill=c)
-    d.rectangle([cx - 4, y0 + 34, cx + 4, y0 + 58], fill=(255, 255, 255))
-    d.ellipse([cx - 5, y0 + 64, cx + 5, y0 + 74], fill=(255, 255, 255))
+def draw_target(draw, x, y, size, color):
+    """Concentric target rings with a small centre dot."""
+    cx, cy = x + size // 2, y + size // 2
+    for r in (34, 24, 14):
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r],
+                     outline=color, width=4)
+    draw.ellipse([cx - 5, cy - 5, cx + 5, cy + 5], fill=color)
 
 
-def icon_vote(d, box, c):
-    x0, y0, x1, y1 = box
-    d.rounded_rectangle([x0 + 10, y0 + 26, x1 - 10, y1 - 10], 6,
-                        outline=c, width=6)
-    d.rectangle([x0 + 30, y0 + 8, x1 - 30, y0 + 28], fill=c)
-    d.line([(x0 + 22, y0 + 52), (x0 + 38, y0 + 70), (x1 - 20, y0 + 34)],
-           fill=c, width=7)
+def draw_cyclone(draw, x, y, size, color):
+    """A spiral-ish storm glyph made of three arcs."""
+    cx, cy = x + size // 2, y + size // 2
+    for r, start, end in ((32, 200, 20), (23, 20, 200), (14, 200, 20)):
+        draw.arc([cx - r, cy - r, cx + r, cy + r], start=start, end=end,
+                 fill=color, width=5)
+    draw.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=color)
 
 
-def icon_cyclone(d, box, c):
-    x0, y0, x1, y1 = box
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
-    for r, start in ((30, 20), (22, 140), (14, 260)):
-        d.arc([cx - r, cy - r, cx + r, cy + r], start, start + 220,
-              fill=c, width=6)
-    d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=c)
-
-
-def icon_star(d, box, c):
-    x0, y0, x1, y1 = box
-    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+def draw_star(draw, x, y, size, color):
+    """A five-point star built from polygon points."""
     import math
-    pts = []
+    cx, cy = x + size // 2, y + size // 2
+    outer, inner = size * 0.42, size * 0.18
+    points = []
     for i in range(10):
-        r = 38 if i % 2 == 0 else 16
-        a = -math.pi / 2 + i * math.pi / 5
-        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-    d.polygon(pts, fill=c)
+        angle = -math.pi / 2 + i * math.pi / 5
+        radius = outer if i % 2 == 0 else inner
+        points.append((cx + radius * math.cos(angle),
+                       cy + radius * math.sin(angle)))
+    draw.polygon(points, fill=color)
 
 
-def story_block(d, x, y, w, h, kicker, headline, body, icon, accent):
-    """One story: icon tile left, kicker + headline + body right."""
-    tile = 92
-    d.rounded_rectangle([x, y, x + tile, y + tile], 10, fill=accent)
-    icon(d, (x + 8, y + 8, x + tile - 8, y + tile - 8), (255, 255, 255))
-    tx = x + tile + 16
-    tw = w - tile - 16
-    d.text((tx, y + 2), kicker, font=font(SANS_B, 19), fill=RED)
-    y2 = para(d, tx, y + 30, headline, font(SANS_B, 27), tw, 33,
-              max_lines=2)
-    para(d, tx, y2 + 4, body, font(SANS, 21), tw, 27, max_lines=3)
+ICON_DRAWERS = {
+    "scales": draw_scales,
+    "target": draw_target,
+    "cyclone": draw_cyclone,
+    "star": draw_star,
+}
+
+STORIES = [
+    {
+        "kicker": "THE HAGUE  \u00b7  JUSTICE",
+        "headline": "UN top court: Myanmar committed genocide",
+        "deck": "The top UN court rules Myanmar committed genocide against the Rohingya.",
+        "icon": "scales",
+        "color": RED,
+    },
+    {
+        "kicker": "MIDDLE EAST",
+        "headline": "Houthi missile damages Riyadh's tower",
+        "deck": "A Houthi attack damages a Riyadh tower housing the sovereign wealth fund.",
+        "icon": "target",
+        "color": NAVY,
+    },
+    {
+        "kicker": "SOUTH ASIA  \u00b7  WEATHER",
+        "headline": "Cyclone Akvan nears India's east coast",
+        "deck": "Landfall due Friday on the Andhra Pradesh-Odisha coast, winds 90-100 km/h.",
+        "icon": "cyclone",
+        "color": NAVY,
+    },
+    {
+        "kicker": "CULTURE  \u00b7  GAMES",
+        "headline": "GTA VI launches after a 13-year wait",
+        "deck": "Grand Theft Auto VI launches Thursday to global fanfare after 13 years.",
+        "icon": "star",
+        "color": RED,
+    },
+]
+
+FOOTER_ITEMS = [
+    "Three oil tankers hit mines near Hormuz",
+    "Voyager 1 one light-day out",
+    "Jeffries set to be first Black House Speaker",
+    "Denmark in Arctic deal with US",
+]
 
 
 def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
+    img = Image.new("RGB", (WIDTH, HEIGHT), PAPER)
+    draw = ImageDraw.Draw(img)
 
-    # Masthead
-    d.rectangle([0, 0, W, 148], fill=NAVY)
-    d.text((36, 22), "THE WORLD IN ONE DAY", font=font(SERIF, 58),
-           fill=(255, 255, 255))
-    d.text((36, 100), "THURSDAY  19  NOVEMBER  2026",
-           font=font(SANS_B, 26), fill=(255, 214, 90))
-    d.text((W - 36, 104), "WORLD NEWS", font=font(SANS_B, 24),
-           fill=(200, 205, 220), anchor="ra")
+    # ---- Masthead -------------------------------------------------------
+    draw.rectangle([0, 0, WIDTH, 150], fill=NAVY)
+    title_font = font(SERIF, 66)
+    title = "THE WORLD IN ONE DAY"
+    tw = draw.textlength(title, font=title_font)
+    draw.text(((WIDTH - tw) / 2, 22), title, font=title_font, fill=(255, 255, 255))
+    date_font = font(SANS_BOLD, 30)
+    draw.text((36, 100), "THURSDAY  19  NOVEMBER  2026",
+              font=date_font, fill=GOLD)
+    section_font = font(SANS_BOLD, 26)
+    section = "WORLD NEWS"
+    draw.text((WIDTH - 36 - draw.textlength(section, font=section_font), 102),
+              section, font=section_font, fill=(190, 196, 214))
 
-    # Lead story
-    y = 176
-    d.text((36, y), "ASIA-PACIFIC  ·  DIPLOMACY", font=font(SANS_B, 20),
-           fill=RED)
-    y = para(d, 36, y + 30,
-             "Trump, Xi and Putin issue joint declaration",
-             font(SERIF, 44), 700, 52, max_lines=2)
-    para(d, 36, y + 8,
-         "The three leaders hold their first-ever three-way summit in "
-         "Shenzhen at APEC and pledge dialogue on nuclear risks and "
-         "stable energy flows.",
-         font(SANS, 24), 700, 32, max_lines=3)
-    d.rounded_rectangle([780, 176, 988, 384], 12, fill=NAVY)
-    icon_summit(d, (796, 192, 972, 368), (255, 214, 90))
-    d.line([(36, 420), (988, 420)], fill=RULE, width=2)
+    # ---- Lead story -----------------------------------------------------
+    lead_x, lead_y = 36, 170
+    lead_w = 640
+    kicker_font = font(SANS_BOLD, 24)
+    draw.text((lead_x, lead_y), "ASIA-PACIFIC  \u00b7  DIPLOMACY",
+              font=kicker_font, fill=RED)
+    head_font = font(SERIF, 44)
+    y = draw_text_block(draw, lead_x, lead_y + 38,
+                        "Trump, Xi and Putin\nissue joint declaration",
+                        head_font, INK, lead_w, line_spacing=8)
+    deck_font = font(SANS, 25)
+    draw_text_block(
+        draw, lead_x, y + 8,
+        "The three leaders hold their first-ever three-way summit in "
+        "Shenzhen, pledging dialogue on nuclear risks.",
+        deck_font, INK, lead_w, line_spacing=8)
 
-    # Four more stories in a 2x2 grid
-    stories = [
-        ("THE HAGUE  ·  JUSTICE", "UN top court: Myanmar committed genocide",
-         "The top UN court rules Myanmar committed genocide against "
-         "the Rohingya.",
-         icon_alert, (178, 34, 34)),
-        ("MIDDLE EAST", "Houthi missile damages Riyadh's tallest tower",
-         "A Riyadh skyscraper housing the sovereign wealth fund is "
-         "damaged in a Houthi attack.",
-         icon_radar, (20, 33, 61)),
-        ("SOUTH ASIA  ·  WEATHER", "Cyclone Akvan nears India's east coast",
-         "Landfall is due Friday on the Andhra Pradesh-Odisha coast, "
-         "winds 90-100 km/h.",
-         icon_cyclone, (20, 33, 61)),
-        ("CULTURE  ·  GAMES", "GTA VI launches after a 13-year wait",
-         "Grand Theft Auto VI launches on Thursday to global fanfare "
-         "after a 13-year wait.",
-         icon_star, (178, 34, 34)),
-    ]
-    gx, gy = 36, 444
-    cw, ch = 466, 236
-    for i, (kicker, headline, body, icon, accent) in enumerate(stories):
-        x = gx + (i % 2) * (cw + 20)
-        yy = gy + (i // 2) * (ch + 16)
-        story_block(d, x, yy, cw, ch, kicker, headline, body, icon, accent)
-        if i % 2 == 0:
-            d.line([(x + cw + 10, yy + 6), (x + cw + 10, yy + ch - 6)],
-                   fill=RULE, width=2)
+    # Lead illustration: navy panel with three leaders as person glyphs.
+    panel_x, panel_y = 712, 170
+    panel_w, panel_h = 276, 236
+    draw.rounded_rectangle([panel_x, panel_y, panel_x + panel_w,
+                            panel_y + panel_h], radius=14, fill=NAVY)
+    for cx in (panel_x + 62, panel_x + 138, panel_x + 214):
+        draw_person(draw, cx, panel_y + 52, 1.0, GOLD, GOLD)
+    draw.line([panel_x + 40, panel_y + 196, panel_x + panel_w - 40,
+               panel_y + 196], fill=GOLD, width=5)
 
-    d.line([(36, 934), (988, 934)], fill=RULE, width=2)
-    d.text((36, 950),
-           "Also: Three oil tankers hit mines near Hormuz  ·  Voyager 1 "
-           "one light-day out",
-           font=font(SANS, 19), fill=GREY)
-    d.text((36, 978),
-           "Jeffries set to be first Black House Speaker  ·  Denmark in "
-           "Arctic deal with US",
-           font=font(SANS, 19), fill=GREY)
-    d.text((36, 1004), "Drawn from reports published on 19 November 2026.",
-           font=font(SANS, 18), fill=GREY)
+    # ---- Divider under the lead ----------------------------------------
+    draw.line([36, 420, WIDTH - 36, 420], fill=RULE, width=2)
 
-    img.save("entry.png", optimize=True)
-    print("wrote entry.png", img.size)
+    # ---- Four-story grid ------------------------------------------------
+    grid_top = 438
+    cell_w, cell_h = 476, 190
+    col_xs = (36, 512)
+    row_ys = (grid_top, grid_top + cell_h + 10)
+    for idx, story in enumerate(STORIES):
+        col = idx % 2
+        row = idx // 2
+        x = col_xs[col]
+        y = row_ys[row]
+        icon_size = 92
+        draw.rounded_rectangle([x, y, x + icon_size, y + icon_size],
+                               radius=12, fill=story["color"])
+        ICON_DRAWERS[story["icon"]](draw, x + 6, y + 6, icon_size - 12,
+                                    (255, 255, 255))
+        text_x = x + icon_size + 16
+        text_w = cell_w - icon_size - 16
+        draw.text((text_x, y + 2), story["kicker"], font=kicker_font, fill=RED)
+        story_head = font(SERIF, 26)
+        hy = draw_text_block(draw, text_x, y + 36, story["headline"],
+                             story_head, INK, text_w, line_spacing=4)
+        draw_text_block(draw, text_x, hy + 6, story["deck"],
+                        font(SANS, 19), INK, text_w, line_spacing=4)
+        if col == 0:
+            draw.line([x + cell_w + 4, y + 4, x + cell_w + 4, y + cell_h - 12],
+                      fill=RULE, width=2)
+
+    # ---- Footer ---------------------------------------------------------
+    foot_y = 860
+    draw.line([36, foot_y, WIDTH - 36, foot_y], fill=RULE, width=2)
+    also_font = font(SANS, 21)
+    also_text = "Also: " + "  \u00b7  ".join(FOOTER_ITEMS)
+    draw_text_block(draw, 36, foot_y + 14, also_text, also_font, INK,
+                    WIDTH - 72, line_spacing=4)
+    draw.text((36, HEIGHT - 34), "Drawn from reports published on 19 November 2026.",
+              font=font(SANS, 18), fill=(110, 106, 96))
+
+    img.save(OUT_PATH, "PNG")
+    print(f"Saved {OUT_PATH} ({WIDTH}x{HEIGHT})")
 
 
 if __name__ == "__main__":
