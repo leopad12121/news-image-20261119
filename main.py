@@ -1,40 +1,51 @@
 #!/usr/bin/env python3
-"""Entrypoint for news-image-20261119 (make.fun).
+"""Copy entry.png next to this script into the output directory.
 
-Copies the finished front-page image, entry.png, which this repository
-holds, into the output directory as entry.png. Standard library only,
-no network, fully deterministic: both runs write the same bytes.
-
-Fix vs round 1: the source path is resolved relative to this file, not
-to the working directory, and the output defaults to /output. The
-grader runs `python3 -P -s /bot/main.py` from an arbitrary working
-directory with a read-only /bot, so a relative `entry.png` was never
-found and the run exited 1.
+Standard library only, no network, no timestamps, no randomness.
+The source image is resolved relative to this file, so the program
+works from any working directory and from a read-only source dir.
 """
 
 import hashlib
 import os
 import shutil
+import sys
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 
-
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        h.update(f.read())
-    return h.hexdigest()
+def sha256_hex(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def main():
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
-    os.makedirs(out_dir, exist_ok=True)
-    src = os.path.join(HERE, "entry.png")
-    dst = os.path.join(out_dir, "entry.png")
-    shutil.copyfile(src, dst)
-    assert sha256(src) == sha256(dst), "copy mismatch"
-    print("wrote", dst, sha256(dst)[:16])
+    source = Path(__file__).resolve().parent / "entry.png"
+    output_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / "entry.png"
+
+    if not source.is_file():
+        print(f"error: source image not found: {source}", file=sys.stderr)
+        return 1
+
+    shutil.copyfile(source, destination)
+
+    source_digest = sha256_hex(source)
+    dest_digest = sha256_hex(destination)
+    if source_digest != dest_digest:
+        print(
+            f"error: digest mismatch after copy: "
+            f"source {source_digest} != destination {dest_digest}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"copied to {destination} sha256={dest_digest[:16]}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
